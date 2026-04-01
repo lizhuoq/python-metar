@@ -88,15 +88,28 @@ def fetch_metar(station: str, hours: float, timeout: float) -> list[dict]:
     return sorted(data, key=sort_key)
 
 
-def fmt_time(value: str | None) -> str:
-    if not value:
+def fmt_time(value: object) -> str:
+    if value is None:
         return "-"
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime(
-            "%Y-%m-%d %H:%M UTC"
-        )
-    except ValueError:
-        return value
+
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+    if isinstance(value, str):
+        if not value:
+            return "-"
+        try:
+            if value.isdigit():
+                return datetime.fromtimestamp(int(value), timezone.utc).strftime(
+                    "%Y-%m-%d %H:%M UTC"
+                )
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            )
+        except ValueError:
+            return value
+
+    return str(value)
 
 
 def csv_time(value: object) -> str:
