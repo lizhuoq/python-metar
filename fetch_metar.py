@@ -144,9 +144,11 @@ def print_results(records: list[dict], raw_only: bool) -> None:
         return
 
     print(f"Total records: {len(records)}")
-    print("-" * 100)
-    print(f"{'Obs Time':20} {'Flight Category':16} {'Wind':14} {'Vis':8} Raw METAR")
-    print("-" * 100)
+    print("-" * 112)
+    print(
+        f"{'Obs Time':20} {'Flight Category':16} {'Wind':14} {'Vis':8} {'Temp/Dew':10} Raw METAR"
+    )
+    print("-" * 112)
 
     for r in records:
         obs_time = fmt_time(r.get("obsTime") or r.get("obsTimeUtc"))
@@ -157,9 +159,14 @@ def print_results(records: list[dict], raw_only: bool) -> None:
             else "-"
         )
         vis = r.get("visib") or r.get("visibility") or "-"
+        temp = r.get("temp") if r.get("temp") is not None else "-"
+        dewp = r.get("dewp") if r.get("dewp") is not None else "-"
+        temp_dew = f"{temp}/{dewp}"
         raw = r.get("rawOb") or r.get("raw_text") or "-"
 
-        print(f"{obs_time:20} {str(category):16} {str(wind):14} {str(vis):8} {raw}")
+        print(
+            f"{obs_time:20} {str(category):16} {str(wind):14} {str(vis):8} {temp_dew:10} {raw}"
+        )
 
 
 def write_csv(records: list[dict], csv_path: str) -> None:
