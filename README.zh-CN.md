@@ -38,6 +38,7 @@ python fetch_metar.py --station ZBAA --hours 6
 - `--raw-only`：仅输出原始 METAR 报文
 - `--timeout`：HTTP 超时时间（秒），默认 `15`
 - `--csv`：导出 CSV 文件路径，例如 `eglc_metar.csv`
+- `--utc`：强制使用 UTC 时间输出（不自动转换为站点本地时区）
 
 ## 使用示例
 
@@ -65,12 +66,19 @@ python fetch_metar.py --station EGLC --hours 24 --csv eglc_metar.csv
 python fetch_metar.py --station EGLC --hours 24 --csv eglc_metar.csv --raw-only
 ```
 
+5. 强制使用 UTC 输出时间：
+
+```bash
+python fetch_metar.py --station EGLC --hours 24 --utc
+```
+
 ## CSV 字段
 
 导出的 CSV 包含以下字段：
 
 - `station`
-- `obs_time_utc`
+- `obs_time`
+- `timezone`
 - `flight_category`
 - `wind_dir_deg`
 - `wind_speed_kt`

@@ -16,8 +16,10 @@ from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 API_BASE = "https://aviationweather.gov/api/data/metar"
+TIMEZONE_API_BASE = "https://timeapi.io/api/TimeZone/coordinate"
 
 
 def parse_args() -> argparse.Namespace:
@@ -50,6 +52,11 @@ def parse_args() -> argparse.Namespace:
         "--csv",
         dest="csv_path",
         help="Export fetched records to CSV file path, e.g. metar.csv",
+    )
+    parser.add_argument(
+        "--utc",
+        action="store_true",
+        help="Force output timestamps in UTC instead of auto-detected station timezone",
     )
     return parser.parse_args()
 
@@ -88,50 +95,76 @@ def fetch_metar(station: str, hours: float, timeout: float) -> list[dict]:
     return sorted(data, key=sort_key)
 
 
-def fmt_time(value: object) -> str:
+def parse_obs_time(value: object) -> datetime | None:
     if value is None:
-        return "-"
-
+        return None
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
+        return datetime.fromtimestamp(value, timezone.utc)
     if isinstance(value, str):
         if not value:
-            return "-"
+            return None
         try:
             if value.isdigit():
-                return datetime.fromtimestamp(int(value), timezone.utc).strftime(
-                    "%Y-%m-%d %H:%M UTC"
-                )
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime(
-                "%Y-%m-%d %H:%M UTC"
-            )
+                return datetime.fromtimestamp(int(value), timezone.utc)
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)
         except ValueError:
-            return value
+            return None
+    return None
 
-    return str(value)
+
+def detect_timezone_name(records: list[dict], timeout: float) -> str:
+    lat = None
+    lon = None
+
+    if records:
+        first = records[0]
+        lat = first.get("lat")
+        lon = first.get("lon")
+
+    if lat is None or lon is None:
+        return "UTC"
+
+    try:
+        params = urlencode({"latitude": lat, "longitude": lon})
+        url = f"{TIMEZONE_API_BASE}?{params}"
+        with urlopen(url, timeout=timeout) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+
+        tz_name = payload.get("timeZone") if isinstance(payload, dict) else None
+        if isinstance(tz_name, str) and tz_name:
+            return tz_name
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError):
+        pass
+
+    return "UTC"
 
 
-def csv_time(value: object) -> str:
-    if value is None:
+def fmt_local_time(value: object, tz_name: str) -> str:
+    dt_utc = parse_obs_time(value)
+    if dt_utc is None:
+        return "-"
+
+    try:
+        local_dt = dt_utc.astimezone(ZoneInfo(tz_name))
+        return f"{local_dt.strftime('%Y-%m-%d %H:%M')} {tz_name}"
+    except ZoneInfoNotFoundError:
+        return dt_utc.strftime("%Y-%m-%d %H:%M UTC")
+
+
+def csv_local_time(value: object, tz_name: str) -> str:
+    dt_utc = parse_obs_time(value)
+    if dt_utc is None:
         return ""
-    if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    if isinstance(value, str):
-        try:
-            if value.isdigit():
-                return datetime.fromtimestamp(int(value), timezone.utc).strftime(
-                    "%Y-%m-%d %H:%M:%S"
-                )
-            return datetime.fromisoformat(value.replace("Z", "+00:00")).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-        except ValueError:
-            return value
-    return str(value)
+    try:
+        return dt_utc.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d %H:%M:%S")
+    except ZoneInfoNotFoundError:
+        return dt_utc.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def print_results(records: list[dict], raw_only: bool) -> None:
+def print_results(records: list[dict], raw_only: bool, tz_name: str) -> None:
     if not records:
         print("No METAR records found for the given station/time range.")
         return
@@ -144,14 +177,15 @@ def print_results(records: list[dict], raw_only: bool) -> None:
         return
 
     print(f"Total records: {len(records)}")
+    time_col = f"Obs Time({tz_name})"
     print("-" * 112)
     print(
-        f"{'Obs Time':20} {'Flight Category':16} {'Wind':14} {'Vis':8} {'Temp/Dew':10} Raw METAR"
+        f"{time_col:30} {'Flight Category':16} {'Wind':14} {'Vis':8} {'Temp/Dew':10} Raw METAR"
     )
     print("-" * 112)
 
     for r in records:
-        obs_time = fmt_time(r.get("obsTime") or r.get("obsTimeUtc"))
+        obs_time = fmt_local_time(r.get("obsTime") or r.get("obsTimeUtc"), tz_name)
         category = r.get("flightCategory") or "-"
         wind = (
             f"{r.get('wdir', '-')}/{r.get('wspd', '-')}kt"
@@ -165,14 +199,15 @@ def print_results(records: list[dict], raw_only: bool) -> None:
         raw = r.get("rawOb") or r.get("raw_text") or "-"
 
         print(
-            f"{obs_time:20} {str(category):16} {str(wind):14} {str(vis):8} {temp_dew:10} {raw}"
+            f"{obs_time:30} {str(category):16} {str(wind):14} {str(vis):8} {temp_dew:10} {raw}"
         )
 
 
-def write_csv(records: list[dict], csv_path: str) -> None:
+def write_csv(records: list[dict], csv_path: str, tz_name: str) -> None:
     fields = [
         "station",
-        "obs_time_utc",
+        "obs_time",
+        "timezone",
         "flight_category",
         "wind_dir_deg",
         "wind_speed_kt",
@@ -191,7 +226,10 @@ def write_csv(records: list[dict], csv_path: str) -> None:
             writer.writerow(
                 {
                     "station": r.get("icaoId") or r.get("station") or "",
-                    "obs_time_utc": csv_time(r.get("obsTime") or r.get("obsTimeUtc")),
+                    "obs_time": csv_local_time(
+                        r.get("obsTime") or r.get("obsTimeUtc"), tz_name
+                    ),
+                    "timezone": tz_name,
                     "flight_category": r.get("flightCategory") or "",
                     "wind_dir_deg": r.get("wdir") if r.get("wdir") is not None else "",
                     "wind_speed_kt": r.get("wspd") if r.get("wspd") is not None else "",
@@ -213,15 +251,17 @@ def main() -> int:
         print(f"Error: {err}", file=sys.stderr)
         return 1
 
+    tz_name = "UTC" if args.utc else detect_timezone_name(records, args.timeout)
+
     if args.csv_path:
         try:
-            write_csv(records, args.csv_path)
+            write_csv(records, args.csv_path, tz_name)
             print(f"CSV exported: {args.csv_path}")
         except OSError as err:
             print(f"Error: failed to write CSV: {err}", file=sys.stderr)
             return 1
 
-    print_results(records, args.raw_only)
+    print_results(records, args.raw_only, tz_name)
     return 0
 
 

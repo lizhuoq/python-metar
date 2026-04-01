@@ -38,6 +38,7 @@ If your `python` command does not point to the target interpreter, use the full 
 - `--raw-only`: Print raw METAR lines only
 - `--timeout`: HTTP timeout in seconds, default `15`
 - `--csv`: Export CSV file path, for example `eglc_metar.csv`
+- `--utc`: Force UTC timestamps (disable auto station timezone conversion)
 
 ## Examples
 
@@ -65,12 +66,19 @@ python fetch_metar.py --station EGLC --hours 24 --csv eglc_metar.csv
 python fetch_metar.py --station EGLC --hours 24 --csv eglc_metar.csv --raw-only
 ```
 
+5. Force UTC output:
+
+```bash
+python fetch_metar.py --station EGLC --hours 24 --utc
+```
+
 ## CSV Columns
 
 Exported CSV includes:
 
 - `station`
-- `obs_time_utc`
+- `obs_time`
+- `timezone`
 - `flight_category`
 - `wind_dir_deg`
 - `wind_speed_kt`
