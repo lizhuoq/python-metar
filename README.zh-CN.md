@@ -98,4 +98,6 @@ python fetch_metar.py --station EGLC --hours 24 --csv eglc_metar.csv --raw-only
 
 ## 许可证
 
-可按你的项目需求补充（例如 MIT）。
+本项目采用 MIT 许可证。
+
+详见 [LICENSE](LICENSE)。

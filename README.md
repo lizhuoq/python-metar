@@ -98,4 +98,6 @@ Exported CSV includes:
 
 ## License
 
-Add a license based on your project needs (for example, MIT).
+This project is licensed under the MIT License.
+
+See [LICENSE](LICENSE) for details.
